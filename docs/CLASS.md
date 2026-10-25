@@ -16,6 +16,7 @@ pycoolctl class [NAME] [--file PATH] [--module PATH] [--info LETTERS]
 - `--full` / `--verbose`: verbose `key=value | ...` output.
 - `--json`: JSON array.
 - `--body`: print only the class source span.
+- `--refs`: print usages as `file:line`.
 - `--db PATH`: index database (or first running instance).
 
 ## Info letters

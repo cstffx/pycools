@@ -24,7 +24,7 @@ static volatile sig_atomic_t pycool_reindex_requested = 0;
 
 typedef struct { sqlite3 *db; sqlite3_int64 file_id; } Ctx;
 
-static const char *symbol_types[] = { "ClassDef", "FunctionDef", "AsyncFunctionDef", "Assign", NULL };
+static const char *symbol_types[] = { "ClassDef", "FunctionDef", "AsyncFunctionDef", "Assign", "Name", NULL };
 
 static void extract_assign_targets(PyObject *target, Ctx *ctx, int line)
 {
@@ -191,6 +191,18 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 			}
 		}
 		Py_XDECREF(targets);
+	} else if (strcmp(type, "Name") == 0 && name) {
+		/* Record uses of class names as references. */
+		const char *sql = "SELECT id FROM symbols WHERE name=?1 AND kind='class';";
+		sqlite3_stmt *stmt;
+		if (sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
+			while (sqlite3_step(stmt) == SQLITE_ROW) {
+				sqlite3_int64 sid = sqlite3_column_int64(stmt, 0);
+				index_add_ref(ctx->db, sid, ctx->file_id, lineno, 0);
+			}
+			sqlite3_finalize(stmt);
+		}
 	}
 	PyErr_Clear();
 }

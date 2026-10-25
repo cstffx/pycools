@@ -75,6 +75,7 @@ int class_command(int argc, char **argv)
 	int compact_mode = 0;
 	int full_mode = 0;
 	int body_mode = 0;
+	int refs_mode = 0;
 	for (int i = 2; i < argc; i++) {
 		if (strcmp(argv[i], "--info") == 0 && i + 1 < argc) {
 			info = argv[++i];
@@ -90,6 +91,8 @@ int class_command(int argc, char **argv)
 			full_mode = 1;
 		} else if (strcmp(argv[i], "--body") == 0) {
 			body_mode = 1;
+		} else if (strcmp(argv[i], "--refs") == 0) {
+			refs_mode = 1;
 		} else if (!name) {
 			name = argv[i];
 		}
@@ -110,6 +113,46 @@ int class_command(int argc, char **argv)
 		fprintf(stderr, "cannot open %s\n", dbpath);
 		return 1;
 	}
+	if (refs_mode) {
+		if (!name) {
+			fprintf(stderr, "usage: pycoolctl class <Name> --refs [--file PATH] [--db PATH]\n");
+			sqlite3_close(db);
+			return 2;
+		}
+		char rsql[2048];
+		if (file) {
+			snprintf(rsql, sizeof(rsql),
+			         "SELECT DISTINCT f.path, r.line FROM refs r "
+			         "JOIN files f ON r.file_id=f.id "
+			         "JOIN symbols s ON r.symbol_id=s.id "
+			         "WHERE s.kind='class' AND s.name=? AND f.path=? "
+			         "ORDER BY f.path, r.line;");
+		} else {
+			snprintf(rsql, sizeof(rsql),
+			         "SELECT DISTINCT f.path, r.line FROM refs r "
+			         "JOIN files f ON r.file_id=f.id "
+			         "JOIN symbols s ON r.symbol_id=s.id "
+			         "WHERE s.kind='class' AND s.name=? "
+			         "ORDER BY f.path, r.line;");
+		}
+		sqlite3_stmt *rstmt;
+		if (sqlite3_prepare_v2(db, rsql, -1, &rstmt, NULL) != SQLITE_OK) {
+			fprintf(stderr, "query error: %s\n", sqlite3_errmsg(db));
+			sqlite3_close(db);
+			return 1;
+		}
+		sqlite3_bind_text(rstmt, 1, name, -1, SQLITE_TRANSIENT);
+		if (file) sqlite3_bind_text(rstmt, 2, file, -1, SQLITE_TRANSIENT);
+		while (sqlite3_step(rstmt) == SQLITE_ROW) {
+			const char *p = (const char *)sqlite3_column_text(rstmt, 0);
+			long ln = sqlite3_column_int64(rstmt, 1);
+			printf("%s:%ld\n", p ? p : "", ln);
+		}
+		sqlite3_finalize(rstmt);
+		sqlite3_close(db);
+		return 0;
+	}
+
 	char sql[2048];
 	if (name) {
 		if (file) {

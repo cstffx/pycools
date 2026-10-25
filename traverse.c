@@ -37,6 +37,10 @@ void ast_traverse(Ast *ast, ast_visitor visitor, void *userdata, AstSubscriber *
 
 		const char *name = NULL;
 		PyObject *name_obj = PyObject_GetAttrString(node, "name");
+		if (!name_obj) {
+			PyErr_Clear();
+			name_obj = PyObject_GetAttrString(node, "id");
+		}
 		if (name_obj) {
 			name = PyUnicode_AsUTF8(name_obj);
 			if (PyErr_Occurred()) { PyErr_Clear(); name = NULL; }
