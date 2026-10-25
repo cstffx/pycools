@@ -4,17 +4,14 @@ LDFLAGS ?= -lpython3.13 -lsqlite3
 
 all: libast.a pycool bin/pycoolctl
 
-libast.a: ast.o traverse.o subscriber/class.o index.o observer.o registry.o ignore.o
-	ar rcs $@ ast.o traverse.o subscriber/class.o index.o observer.o registry.o ignore.o
+libast.a: ast.o traverse.o index.o observer.o registry.o ignore.o
+	ar rcs $@ ast.o traverse.o index.o observer.o registry.o ignore.o
 
 ast.o: ast.c ast.h
 	$(CC) $(CFLAGS) -c ast.c
 
 traverse.o: traverse.c traverse.h ast.h
 	$(CC) $(CFLAGS) -c traverse.c
-
-subscriber/class.o: subscriber/class.c subscriber/class.h traverse.h ast.h
-	$(CC) $(CFLAGS) -I. -c subscriber/class.c -o subscriber/class.o
 
 index.o: index.c index.h
 	$(CC) $(CFLAGS) -c index.c
@@ -43,9 +40,6 @@ test_ast: test_ast.c ast.o
 
 test_traverse: test_traverse.c ast.o traverse.o
 	$(CC) $(CFLAGS) -o $@ test_traverse.c ast.o traverse.o $(LDFLAGS)
-
-test_subscriber: test_subscriber.c ast.o traverse.o subscriber/class.o
-	$(CC) $(CFLAGS) -I. -o $@ test_subscriber.c ast.o traverse.o subscriber/class.o $(LDFLAGS)
 
 test_index: test_index.c index.o
 	$(CC) $(CFLAGS) -I. -o $@ test_index.c index.o -lsqlite3
