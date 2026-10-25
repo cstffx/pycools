@@ -21,6 +21,7 @@ static const char *field_name(char c)
 	case 'I': return "refs";
 	case 'J': return "decorators";
 	case 'K': return "module";
+	case 'L': return "end_line";
 	default: return NULL;
 	}
 }
@@ -91,13 +92,13 @@ int class_command(int argc, char **argv)
 	if (name) {
 		if (file) {
 			snprintf(sql, sizeof(sql),
-			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators "
+			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators, cd.end_line "
 			         "FROM symbols s JOIN files f ON s.file_id=f.id "
 			         "LEFT JOIN class_details cd ON cd.symbol_id=s.id "
 			         "WHERE s.kind='class' AND s.name=? AND f.path=?;");
 		} else {
 			snprintf(sql, sizeof(sql),
-			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators "
+			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators, cd.end_line "
 			         "FROM symbols s JOIN files f ON s.file_id=f.id "
 			         "LEFT JOIN class_details cd ON cd.symbol_id=s.id "
 			         "WHERE s.kind='class' AND s.name=?;");
@@ -105,13 +106,13 @@ int class_command(int argc, char **argv)
 	} else {
 		if (file) {
 			snprintf(sql, sizeof(sql),
-			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators "
+			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators, cd.end_line "
 			         "FROM symbols s JOIN files f ON s.file_id=f.id "
 			         "LEFT JOIN class_details cd ON cd.symbol_id=s.id "
 			         "WHERE s.kind='class' AND f.path=?;");
 		} else {
 			snprintf(sql, sizeof(sql),
-			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators "
+			         "SELECT s.name, f.path, s.line, cd.bases, cd.methods, cd.docstring, cd.decorators, cd.end_line "
 			         "FROM symbols s JOIN files f ON s.file_id=f.id "
 			         "LEFT JOIN class_details cd ON cd.symbol_id=s.id "
 			         "WHERE s.kind='class';");
@@ -139,6 +140,7 @@ int class_command(int argc, char **argv)
 		const char *methods = (const char *)sqlite3_column_text(stmt, 4);
 		const char *doc = (const char *)sqlite3_column_text(stmt, 5);
 		const char *decs = (const char *)sqlite3_column_text(stmt, 6);
+		long end_line = sqlite3_column_int64(stmt, 7);
 		had_rows = 1;
 
 		if (json_mode) {
@@ -157,6 +159,7 @@ int class_command(int argc, char **argv)
 			print_json_str(doc);
 			printf(",\"decorators\":");
 			print_json_str(decs);
+			printf(",\"end_line\":%ld", end_line);
 			printf("}");
 		} else if (compact_mode) {
 			printf("%s %s:%ld", n ? n : "", path ? path : "", line);
@@ -164,11 +167,12 @@ int class_command(int argc, char **argv)
 			if (methods && methods[0]) printf(" methods=%s", methods);
 			if (doc && doc[0]) printf(" docstring=%s", doc);
 			if (decs && decs[0]) printf(" decorators=%s", decs);
+			if (end_line > 0) printf(" end_line=%ld", end_line);
 			printf("\n");
 		} else {
 			/* print selected or all */
 			int first = 1;
-			const char *letters = all ? "ABCDEFGIJK" : info;
+			const char *letters = all ? "ABCDEFGIJKL" : info;
 			for (const char *p = letters; *p; p++) {
 				const char *fname = field_name(*p);
 				if (!fname) continue;
@@ -185,6 +189,7 @@ int class_command(int argc, char **argv)
 				else if (*p == 'I') printf("refs=n/a");
 				else if (*p == 'J') printf("decorators=%s", decs ? decs : "");
 				else if (*p == 'K') printf("module=%s", path ? path : "");
+				else if (*p == 'L') printf("end_line=%ld", end_line);
 			}
 			printf("\n");
 		}

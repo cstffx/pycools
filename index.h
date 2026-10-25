@@ -31,7 +31,7 @@ int index_add_ref(sqlite3 *db, sqlite3_int64 symbol_id, sqlite3_int64 file_id, i
 int index_add_type(sqlite3 *db, sqlite3_int64 symbol_id, const char *type_name);
 
 /* Insert class details. Returns 0 on success. */
-int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bases, const char *methods, const char *docstring, const char *decorators);
+int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bases, const char *methods, const char *docstring, const char *decorators, int end_line);
 
 /* Transaction helpers. */
 int index_begin(sqlite3 *db);

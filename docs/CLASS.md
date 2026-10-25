@@ -30,6 +30,7 @@ pycoolctl class [NAME] [--file PATH] [--module PATH] [--info LETTERS]
 - `I` = refs (n/a)
 - `J` = decorators
 - `K` = module
+- `L` = end_line
 
 ## Output
 

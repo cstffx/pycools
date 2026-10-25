@@ -41,6 +41,7 @@ static const char *SCHEMA =
 "  methods TEXT,"
 "  docstring TEXT,"
 "  decorators TEXT,"
+"  end_line INTEGER,"
 "  FOREIGN KEY(symbol_id) REFERENCES symbols(id)"
 ");"
 "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);"
@@ -61,6 +62,7 @@ int index_open(const char *path, sqlite3 **db)
 		return -1;
 	}
 	sqlite3_exec(*db, "ALTER TABLE symbols ADD COLUMN detail TEXT;", NULL, NULL, NULL);
+	sqlite3_exec(*db, "ALTER TABLE class_details ADD COLUMN end_line INTEGER;", NULL, NULL, NULL);
 	return 0;
 }
 
@@ -241,9 +243,9 @@ int index_remove_dir(sqlite3 *db, const char *dir)
 	return index_commit(db);
 }
 
-int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bases, const char *methods, const char *docstring, const char *decorators)
+int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bases, const char *methods, const char *docstring, const char *decorators, int end_line)
 {
-	const char *sql = "INSERT OR REPLACE INTO class_details(symbol_id,bases,methods,docstring,decorators) VALUES(?,?,?,?,?);";
+	const char *sql = "INSERT OR REPLACE INTO class_details(symbol_id,bases,methods,docstring,decorators,end_line) VALUES(?,?,?,?,?,?);";
 	sqlite3_stmt *stmt;
 	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
 	sqlite3_bind_int64(stmt, 1, symbol_id);
@@ -251,6 +253,7 @@ int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bas
 	sqlite3_bind_text(stmt, 3, methods ? methods : "", -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 4, docstring ? docstring : "", -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 5, decorators ? decorators : "", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 6, end_line);
 	int rc = sqlite3_step(stmt);
 	sqlite3_finalize(stmt);
 	return (rc == SQLITE_DONE) ? 0 : -1;

@@ -167,9 +167,18 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 			Py_XDECREF(decs);
 		}
 		if (ast_mod) Py_DECREF(ast_mod);
+		int end_line = 0;
+		PyObject *end_lineno_obj = PyObject_GetAttrString(node, "end_lineno");
+		if (end_lineno_obj) {
+			end_line = (int)PyLong_AsLong(end_lineno_obj);
+			if (PyErr_Occurred()) PyErr_Clear();
+			Py_DECREF(end_lineno_obj);
+		} else {
+			PyErr_Clear();
+		}
 		sqlite3_int64 sid;
 		if (name) index_add_symbol(ctx->db, ctx->file_id, name, "class", lineno, 0, NULL, &sid);
-		index_add_class_detail(ctx->db, sid, bases, methods, docstring, decorators);
+		index_add_class_detail(ctx->db, sid, bases, methods, docstring, decorators, end_line);
 		free(bases); free(methods); free(docstring); free(decorators);
 	} else if (strcmp(type, "FunctionDef") == 0 || strcmp(type, "AsyncFunctionDef") == 0) {
 		if (name) index_add_symbol(ctx->db, ctx->file_id, name, "function", lineno, 0, NULL, &sid);
