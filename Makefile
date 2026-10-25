@@ -37,8 +37,8 @@ info.o: info.c info.h
 ignore.o: ignore.c ignore.h
 	$(CC) $(CFLAGS) -c ignore.c
 
-pycool: pycool.c libast.a
-	$(CC) $(CFLAGS) -I. -o $@ pycool.c libast.a $(LDFLAGS)
+pycool: pycool.c extract.c scan.c libast.a
+	$(CC) $(CFLAGS) -I. -o $@ pycool.c extract.c scan.c libast.a $(LDFLAGS)
 
 bin/pycoolctl: pycoolctl/main.c pycoolctl/list.c pycoolctl/info.c pycoolctl/class.c pycoolctl/stop.c pycoolctl/clean.c pycoolctl/reindex.c registry.o
 	mkdir -p bin
