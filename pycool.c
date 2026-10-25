@@ -318,6 +318,193 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 							Py_XDECREF(decs_obj);
 						}
 						Py_XDECREF(mname);
+					} else if (cn && strcmp(cn, "Assign") == 0) {
+						PyObject *targets = PyObject_GetAttrString(item, "targets");
+						PyObject *value = PyObject_GetAttrString(item, "value");
+						PyObject *vcls = value ? PyObject_GetAttrString(value, "__class__") : NULL;
+						PyObject *unparse_fn = ast_mod ? PyObject_GetAttrString(ast_mod, "unparse") : NULL;
+						PyObject *vname = vcls ? PyObject_GetAttrString(vcls, "__name__") : NULL;
+						const char *vkind = vname ? PyUnicode_AsUTF8(vname) : NULL;
+						int is_lambda = vkind && strcmp(vkind, "Lambda") == 0;
+						int is_method_like = is_lambda || (vkind && (strcmp(vkind, "Name") == 0 || strcmp(vkind, "Call") == 0));
+
+						if (is_method_like && targets && PyList_Check(targets)) {
+							Py_ssize_t nt = PyList_Size(targets);
+							for (Py_ssize_t ti = 0; ti < nt; ti++) {
+								PyObject *tgt = PyList_GetItem(targets, ti);
+								PyObject *tcls = tgt ? PyObject_GetAttrString(tgt, "__class__") : NULL;
+								PyObject *tname_attr = tcls ? PyObject_GetAttrString(tcls, "__name__") : NULL;
+								const char *tclsname = tname_attr ? PyUnicode_AsUTF8(tname_attr) : NULL;
+								if (tclsname && strcmp(tclsname, "Name") == 0) {
+									PyObject *idobj = PyObject_GetAttrString(tgt, "id");
+									const char *methname = idobj ? PyUnicode_AsUTF8(idobj) : NULL;
+									if (methname) {
+										if (is_lambda) {
+											/* extract lambda args */
+											PyObject *largs = PyObject_GetAttrString(value, "args");
+											PyObject *lbody = PyObject_GetAttrString(value, "body");
+											PyObject *largs_str = (unparse_fn && largs) ? PyObject_CallFunction(unparse_fn, "(O)", largs) : NULL;
+											const char *largs_s = (largs_str && PyUnicode_Check(largs_str)) ? PyUnicode_AsUTF8(largs_str) : "";
+											char *sig = NULL;
+											if (asprintf(&sig, "%s(%s)", methname, largs_s ? largs_s : "") == -1) sig = NULL;
+											if (sig) {
+												size_t add = strlen(sig) + 2;
+												if (len + add >= cap) { cap = (len+add)*2; methods = realloc(methods, cap); }
+												if (len > 0) methods[len++] = ',';
+												strcpy(methods + len, sig);
+												len += strlen(sig);
+												free(sig);
+											}
+											/* insert method row + args (reuse arg parsing by treating lambda args) */
+											if (name) {
+												sqlite3_int64 mid = 0;
+												int mline = lineno;
+												int mend = lineno;
+												PyObject *end_lineno_obj = PyObject_GetAttrString(item, "end_lineno");
+												if (end_lineno_obj) {
+													mend = (int)PyLong_AsLong(end_lineno_obj);
+													if (PyErr_Occurred()) PyErr_Clear();
+													Py_DECREF(end_lineno_obj);
+												} else PyErr_Clear();
+												index_add_method(ctx->db, sid, methname, mline, mend, 0, "@lambda", NULL, NULL, &mid);
+												/* args */
+												if (mid > 0 && largs) {
+													/* positional */
+													PyObject *posonly = PyObject_GetAttrString(largs, "posonlyargs");
+													PyObject *pos = PyObject_GetAttrString(largs, "args");
+													PyObject *vararg = PyObject_GetAttrString(largs, "vararg");
+													PyObject *kwonly = PyObject_GetAttrString(largs, "kwonlyargs");
+													PyObject *defaults = PyObject_GetAttrString(largs, "defaults");
+													PyObject *kw_defaults = PyObject_GetAttrString(largs, "kw_defaults");
+													PyObject *kwarg = PyObject_GetAttrString(largs, "kwarg");
+
+													PyObject *combined = PyList_New(0);
+													if (posonly && PyList_Check(posonly)) for (Py_ssize_t i=0;i<PyList_Size(posonly);i++) PyList_Append(combined, PyList_GetItem(posonly,i));
+													if (pos && PyList_Check(pos)) for (Py_ssize_t i=0;i<PyList_Size(pos);i++) PyList_Append(combined, PyList_GetItem(pos,i));
+													Py_ssize_t ncombined = PyList_Check(combined) ? PyList_Size(combined) : 0;
+													Py_ssize_t ndefaults = (defaults && PyList_Check(defaults)) ? PyList_Size(defaults) : 0;
+													for (Py_ssize_t i=0;i<ncombined;i++) {
+														PyObject *arg = PyList_GetItem(combined,i);
+														PyObject *argname = arg ? PyObject_GetAttrString(arg,"arg") : NULL;
+														const char *an = argname ? PyUnicode_AsUTF8(argname) : NULL;
+														if (an && PyErr_Occurred()) { PyErr_Clear(); an=NULL; }
+														PyObject *ann = arg ? PyObject_GetAttrString(arg,"annotation") : NULL;
+														PyObject *ann_str = (unparse_fn && ann && ann != Py_None) ? PyObject_CallFunction(unparse_fn,"(O)",ann) : NULL;
+														const char *ann_s = (ann_str && PyUnicode_Check(ann_str)) ? PyUnicode_AsUTF8(ann_str) : NULL;
+														char *def_s = NULL;
+														Py_ssize_t def_index = i - (ncombined - ndefaults);
+														if (def_index >= 0 && defaults && PyList_Check(defaults)) {
+															PyObject *dobj = PyList_GetItem(defaults, def_index);
+															PyObject *dstr = (unparse_fn && dobj) ? PyObject_CallFunction(unparse_fn,"(O)",dobj) : NULL;
+															if (dstr && PyUnicode_Check(dstr)) { const char *ds=PyUnicode_AsUTF8(dstr); if (ds) def_s=strdup(ds); }
+															Py_XDECREF(dstr);
+														}
+														const char *kind = "positional";
+														if (posonly && PyList_Check(posonly) && i < PyList_Size(posonly)) kind = "positional-only";
+														index_add_method_arg(ctx->db, mid, an, ann_s, def_s, kind, (int)i);
+														free(def_s);
+														Py_XDECREF(ann_str);
+														Py_XDECREF(ann);
+														Py_XDECREF(argname);
+													}
+													Py_XDECREF(combined);
+													if (vararg && vararg != Py_None) {
+														PyObject *vname = PyObject_GetAttrString(vararg,"arg");
+														const char *vn = vname ? PyUnicode_AsUTF8(vname) : NULL;
+														if (vn && PyErr_Occurred()) { PyErr_Clear(); vn=NULL; }
+														PyObject *vann = PyObject_GetAttrString(vararg,"annotation");
+														PyObject *vann_str = (unparse_fn && vann && vann != Py_None) ? PyObject_CallFunction(unparse_fn,"(O)",vann) : NULL;
+														const char *vann_s = (vann_str && PyUnicode_Check(vann_str)) ? PyUnicode_AsUTF8(vann_str) : NULL;
+														index_add_method_arg(ctx->db, mid, vn, vann_s, NULL, "varargs", -1);
+														Py_XDECREF(vann_str); Py_XDECREF(vann); Py_XDECREF(vname);
+													}
+													if (kwonly && PyList_Check(kwonly)) {
+														Py_ssize_t nkw = PyList_Size(kwonly);
+														for (Py_ssize_t i=0;i<nkw;i++) {
+															PyObject *arg = PyList_GetItem(kwonly,i);
+															PyObject *argname = arg ? PyObject_GetAttrString(arg,"arg") : NULL;
+															const char *an = argname ? PyUnicode_AsUTF8(argname) : NULL;
+															if (an && PyErr_Occurred()) { PyErr_Clear(); an=NULL; }
+															PyObject *ann = arg ? PyObject_GetAttrString(arg,"annotation") : NULL;
+															PyObject *ann_str = (unparse_fn && ann && ann != Py_None) ? PyObject_CallFunction(unparse_fn,"(O)",ann) : NULL;
+															const char *ann_s = (ann_str && PyUnicode_Check(ann_str)) ? PyUnicode_AsUTF8(ann_str) : NULL;
+															char *def_s = NULL;
+															if (kw_defaults && PyList_Check(kw_defaults) && i < PyList_Size(kw_defaults)) {
+																PyObject *dobj = PyList_GetItem(kw_defaults,i);
+																if (dobj && dobj != Py_None && unparse_fn) {
+																	PyObject *dstr = PyObject_CallFunction(unparse_fn,"(O)",dobj);
+																	if (dstr && PyUnicode_Check(dstr)) { const char *ds=PyUnicode_AsUTF8(dstr); if (ds) def_s=strdup(ds); }
+																	Py_XDECREF(dstr);
+																}
+															}
+															index_add_method_arg(ctx->db, mid, an, ann_s, def_s, "keyword-only", (int)i);
+															free(def_s);
+															Py_XDECREF(ann_str);
+															Py_XDECREF(ann);
+															Py_XDECREF(argname);
+														}
+													}
+													if (kwarg && kwarg != Py_None) {
+														PyObject *kname = PyObject_GetAttrString(kwarg,"arg");
+														const char *kn = kname ? PyUnicode_AsUTF8(kname) : NULL;
+														if (kn && PyErr_Occurred()) { PyErr_Clear(); kn=NULL; }
+														PyObject *kann = PyObject_GetAttrString(kwarg,"annotation");
+														PyObject *kann_str = (unparse_fn && kann && kann != Py_None) ? PyObject_CallFunction(unparse_fn,"(O)",kann) : NULL;
+														const char *kann_s = (kann_str && PyUnicode_Check(kann_str)) ? PyUnicode_AsUTF8(kann_str) : NULL;
+														index_add_method_arg(ctx->db, mid, kn, kann_s, NULL, "kwargs", -1);
+														Py_XDECREF(kann_str); Py_XDECREF(kann); Py_XDECREF(kname);
+													}
+													Py_XDECREF(kwarg); Py_XDECREF(kw_defaults); Py_XDECREF(defaults);
+													Py_XDECREF(kwonly); Py_XDECREF(vararg); Py_XDECREF(pos); Py_XDECREF(posonly);
+												}
+												Py_XDECREF(largs_str);
+												Py_XDECREF(largs);
+												Py_XDECREF(lbody);
+											}
+											Py_XDECREF(idobj);
+										} else {
+											/* assigned method (non-lambda): store reference */
+											PyObject *val_str = (unparse_fn && value) ? PyObject_CallFunction(unparse_fn, "(O)", value) : NULL;
+											const char *vs = (val_str && PyUnicode_Check(val_str)) ? PyUnicode_AsUTF8(val_str) : NULL;
+											char *sig = NULL;
+											if (vs) {
+												if (asprintf(&sig, "%s = %s", methname, vs) == -1) sig = NULL;
+											} else {
+												if (asprintf(&sig, "%s = <expr>", methname) == -1) sig = NULL;
+											}
+											if (sig) {
+												size_t add = strlen(sig) + 2;
+												if (len + add >= cap) { cap = (len+add)*2; methods = realloc(methods, cap); }
+												if (len > 0) methods[len++] = ',';
+												strcpy(methods + len, sig);
+												len += strlen(sig);
+												free(sig);
+											}
+											if (name) {
+												sqlite3_int64 mid = 0;
+												PyObject *end_lineno_obj = PyObject_GetAttrString(item, "end_lineno");
+												int mend = lineno;
+												if (end_lineno_obj) {
+													mend = (int)PyLong_AsLong(end_lineno_obj);
+													if (PyErr_Occurred()) PyErr_Clear();
+													Py_DECREF(end_lineno_obj);
+												} else PyErr_Clear();
+												index_add_method(ctx->db, sid, methname, lineno, mend, 0, "assigned", NULL, NULL, &mid);
+											}
+											Py_XDECREF(val_str);
+											Py_XDECREF(idobj);
+										}
+									}
+									Py_XDECREF(tname_attr);
+									Py_XDECREF(tcls);
+								}
+							}
+							Py_XDECREF(targets);
+							Py_XDECREF(value);
+							Py_XDECREF(vname);
+							Py_XDECREF(vcls);
+							Py_XDECREF(unparse_fn);
+						}
 					}
 					Py_XDECREF(iname);
 					Py_XDECREF(icls);
@@ -381,6 +568,113 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 		if (name) index_add_symbol(ctx->db, ctx->file_id, name, "function", lineno, 0, NULL, &sid);
 	} else if (strcmp(type, "Assign") == 0) {
 		PyObject *targets = PyObject_GetAttrString(node, "targets");
+		PyObject *value = PyObject_GetAttrString(node, "value");
+		PyObject *vcls = value ? PyObject_GetAttrString(value, "__class__") : NULL;
+		PyObject *vname = vcls ? PyObject_GetAttrString(vcls, "__name__") : NULL;
+		const char *vkind = vname ? PyUnicode_AsUTF8(vname) : NULL;
+		int is_method_like = vkind && (strcmp(vkind, "Lambda") == 0 || strcmp(vkind, "Name") == 0 || strcmp(vkind, "Call") == 0);
+		if (is_method_like && targets && PyList_Check(targets)) {
+			Py_ssize_t nt = PyList_Size(targets);
+			for (Py_ssize_t ti = 0; ti < nt; ti++) {
+				PyObject *tgt = PyList_GetItem(targets, ti);
+				PyObject *tcls = tgt ? PyObject_GetAttrString(tgt, "__class__") : NULL;
+				PyObject *tclsname_obj = tcls ? PyObject_GetAttrString(tcls, "__name__") : NULL;
+				const char *tclsname = tclsname_obj ? PyUnicode_AsUTF8(tclsname_obj) : NULL;
+				if (tclsname && strcmp(tclsname, "Attribute") == 0) {
+					PyObject *obj = PyObject_GetAttrString(tgt, "value");
+					PyObject *attr = PyObject_GetAttrString(tgt, "attr");
+					PyObject *ocls = obj ? PyObject_GetAttrString(obj, "__class__") : NULL;
+					PyObject *oname_obj = ocls ? PyObject_GetAttrString(ocls, "__name__") : NULL;
+					const char *oname_cls = oname_obj ? PyUnicode_AsUTF8(oname_obj) : NULL;
+					PyObject *idobj = (obj && oname_cls && strcmp(oname_cls, "Name") == 0) ? PyObject_GetAttrString(obj, "id") : NULL;
+					const char *classname = idobj ? PyUnicode_AsUTF8(idobj) : NULL;
+					if (classname && PyErr_Occurred()) { PyErr_Clear(); classname = NULL; }
+					const char *methodname = attr ? PyUnicode_AsUTF8(attr) : NULL;
+					if (classname && methodname) {
+						/* find class symbols */
+						const char *sql = "SELECT id FROM symbols WHERE name=?1 AND kind='class';";
+						sqlite3_stmt *stmt;
+						if (sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(stmt, 1, classname, -1, SQLITE_TRANSIENT);
+							while (sqlite3_step(stmt) == SQLITE_ROW) {
+								sqlite3_int64 csid = sqlite3_column_int64(stmt, 0);
+								int is_lambda = vkind && strcmp(vkind, "Lambda") == 0;
+								PyObject *unparse_fn = PyImport_ImportModule("ast") ? PyObject_GetAttrString(PyImport_ImportModule("ast"), "unparse") : NULL;
+								/* insert method */
+								sqlite3_int64 mid = 0;
+								const char *decorators = is_lambda ? "@lambda" : "assigned";
+								const char *returns = NULL;
+								if (vkind && strcmp(vkind, "Lambda") == 0) {
+									PyObject *lreturns = NULL; /* lambda has no annotation */
+									(void)lreturns;
+								}
+								index_add_method(ctx->db, csid, methodname, lineno, lineno, 0, decorators, returns, NULL, &mid);
+								/* update class_details.methods string */
+								/* build sig */
+								char *sig = NULL;
+								if (is_lambda) {
+									PyObject *largs = PyObject_GetAttrString(value, "args");
+									PyObject *la = unparse_fn && largs ? PyObject_CallFunction(unparse_fn, "(O)", largs) : NULL;
+									const char *las = (la && PyUnicode_Check(la)) ? PyUnicode_AsUTF8(la) : "";
+									if (asprintf(&sig, "%s(%s)", methodname, las ? las : "") == -1) sig = NULL;
+									Py_XDECREF(la);
+									Py_XDECREF(largs);
+								} else {
+									PyObject *vs = unparse_fn && value ? PyObject_CallFunction(unparse_fn, "(O)", value) : NULL;
+									const char *vstr = (vs && PyUnicode_Check(vs)) ? PyUnicode_AsUTF8(vs) : NULL;
+									if (vstr) {
+										if (asprintf(&sig, "%s = %s", methodname, vstr) == -1) sig = NULL;
+									} else {
+										if (asprintf(&sig, "%s = <expr>", methodname) == -1) sig = NULL;
+									}
+									Py_XDECREF(vs);
+								}
+								if (sig) {
+									/* append to class_details.methods */
+									sqlite3_stmt *us;
+									const char *usql = "SELECT methods FROM class_details WHERE symbol_id=?;";
+									if (sqlite3_prepare_v2(ctx->db, usql, -1, &us, NULL) == SQLITE_OK) {
+										sqlite3_bind_int64(us, 1, csid);
+										if (sqlite3_step(us) == SQLITE_ROW) {
+											const char *old = (const char *)sqlite3_column_text(us, 0);
+											char *newm = NULL;
+											if (old && old[0]) { if (asprintf(&newm, "%s,%s", old, sig) == -1) newm = NULL; }
+											else { if (asprintf(&newm, "%s", sig) == -1) newm = NULL; }
+											sqlite3_finalize(us);
+											if (newm) {
+												sqlite3_stmt *up;
+												const char *upsql = "UPDATE class_details SET methods=? WHERE symbol_id=?;";
+												if (sqlite3_prepare_v2(ctx->db, upsql, -1, &up, NULL) == SQLITE_OK) {
+													sqlite3_bind_text(up, 1, newm, -1, SQLITE_TRANSIENT);
+													sqlite3_bind_int64(up, 2, csid);
+													sqlite3_step(up);
+													sqlite3_finalize(up);
+												}
+												free(newm);
+											}
+										} else {
+											sqlite3_finalize(us);
+										}
+									}
+									free(sig);
+								}
+								Py_XDECREF(unparse_fn);
+							}
+							sqlite3_finalize(stmt);
+						}
+					}
+					Py_XDECREF(idobj);
+					Py_XDECREF(tclsname_obj);
+					Py_XDECREF(tcls);
+					Py_XDECREF(attr);
+					Py_XDECREF(obj);
+				}
+			}
+		}
+		Py_XDECREF(vname);
+		Py_XDECREF(vcls);
+		Py_XDECREF(value);
+		/* original variable extraction */
 		if (targets && PyList_Check(targets)) {
 			Py_ssize_t n = PyList_Size(targets);
 			for (Py_ssize_t i = 0; i < n; i++) {
