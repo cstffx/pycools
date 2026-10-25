@@ -108,17 +108,37 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 					const char *cn = iname ? PyUnicode_AsUTF8(iname) : NULL;
 					if (cn && (strcmp(cn, "FunctionDef") == 0 || strcmp(cn, "AsyncFunctionDef") == 0)) {
 						PyObject *mname = PyObject_GetAttrString(item, "name");
-						if (mname) {
-							const char *ms = PyUnicode_AsUTF8(mname);
-							if (ms) {
-								size_t add = strlen(ms) + 2;
+						const char *ms = mname ? PyUnicode_AsUTF8(mname) : NULL;
+						if (ms) {
+							int is_async = (strcmp(cn, "AsyncFunctionDef") == 0);
+							PyObject *args_obj = PyObject_GetAttrString(item, "args");
+							PyObject *returns_obj = PyObject_GetAttrString(item, "returns");
+							PyObject *unparse_fn = ast_mod ? PyObject_GetAttrString(ast_mod, "unparse") : NULL;
+							PyObject *args_str = (unparse_fn && args_obj) ? PyObject_CallFunction(unparse_fn, "(O)", args_obj) : NULL;
+							PyObject *ret_str = (unparse_fn && returns_obj && returns_obj != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", returns_obj) : NULL;
+							const char *args_s = (args_str && PyUnicode_Check(args_str)) ? PyUnicode_AsUTF8(args_str) : "";
+							const char *ret_s = (ret_str && PyUnicode_Check(ret_str)) ? PyUnicode_AsUTF8(ret_str) : NULL;
+							char *sig = NULL;
+							if (ret_s) {
+								if (asprintf(&sig, "%s%s(%s) -> %s", is_async ? "async " : "", ms, args_s ? args_s : "", ret_s) == -1) sig = NULL;
+							} else {
+								if (asprintf(&sig, "%s%s(%s)", is_async ? "async " : "", ms, args_s ? args_s : "") == -1) sig = NULL;
+							}
+							if (sig) {
+								size_t add = strlen(sig) + 2;
 								if (len + add >= cap) { cap = (len+add)*2; methods = realloc(methods, cap); }
 								if (len > 0) methods[len++] = ',';
-								strcpy(methods + len, ms);
-								len += strlen(ms);
+								strcpy(methods + len, sig);
+								len += strlen(sig);
+								free(sig);
 							}
-							Py_DECREF(mname);
+							Py_XDECREF(ret_str);
+							Py_XDECREF(args_str);
+							Py_XDECREF(unparse_fn);
+							Py_XDECREF(returns_obj);
+							Py_XDECREF(args_obj);
 						}
+						Py_XDECREF(mname);
 					}
 					Py_XDECREF(iname);
 					Py_XDECREF(icls);
