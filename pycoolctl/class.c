@@ -46,6 +46,25 @@ static void print_json_str(const char *s)
 	putchar('"');
 }
 
+static void print_class_body(const char *path, long start, long end)
+{
+	if (!path || start <= 0) return;
+	if (end < start) end = start;
+	FILE *f = fopen(path, "r");
+	if (!f) { perror(path); return; }
+	char *line = NULL;
+	size_t cap = 0;
+	ssize_t len;
+	long cur = 0;
+	while ((len = getline(&line, &cap, f)) != -1) {
+		cur++;
+		if (cur >= start && cur <= end) fputs(line, stdout);
+		if (cur >= end) break;
+	}
+	free(line);
+	fclose(f);
+}
+
 int class_command(int argc, char **argv)
 {
 	const char *name = NULL;
@@ -55,6 +74,7 @@ int class_command(int argc, char **argv)
 	int json_mode = 0;
 	int compact_mode = 0;
 	int full_mode = 0;
+	int body_mode = 0;
 	for (int i = 2; i < argc; i++) {
 		if (strcmp(argv[i], "--info") == 0 && i + 1 < argc) {
 			info = argv[++i];
@@ -68,6 +88,8 @@ int class_command(int argc, char **argv)
 			compact_mode = 1;
 		} else if (strcmp(argv[i], "--full") == 0 || strcmp(argv[i], "--verbose") == 0) {
 			full_mode = 1;
+		} else if (strcmp(argv[i], "--body") == 0) {
+			body_mode = 1;
 		} else if (!name) {
 			name = argv[i];
 		}
@@ -142,6 +164,12 @@ int class_command(int argc, char **argv)
 		const char *decs = (const char *)sqlite3_column_text(stmt, 6);
 		long end_line = sqlite3_column_int64(stmt, 7);
 		had_rows = 1;
+
+		if (body_mode) {
+			long el = end_line > 0 ? end_line : line;
+			print_class_body(path, line, el);
+			continue;
+		}
 
 		if (json_mode) {
 			if (!json_first) printf(",\n");

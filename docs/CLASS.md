@@ -15,6 +15,7 @@ pycoolctl class [NAME] [--file PATH] [--module PATH] [--info LETTERS]
 - `--compact`: one compact line per class (default).
 - `--full` / `--verbose`: verbose `key=value | ...` output.
 - `--json`: JSON array.
+- `--body`: print only the class source span.
 - `--db PATH`: index database (or first running instance).
 
 ## Info letters
