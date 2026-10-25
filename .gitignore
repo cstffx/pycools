@@ -17,4 +17,4 @@ test_index
 # Python caches
 __pycache__/
 *.pyc
-.pytest_cache/
+.pytest_cache/http
