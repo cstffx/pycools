@@ -71,6 +71,7 @@ int class_command(int argc, char **argv)
 	const char *info = NULL;
 	const char *dbpath = NULL;
 	const char *file = NULL;
+	const char *pidstr = NULL;
 	int json_mode = 0;
 	int compact_mode = 0;
 	int full_mode = 0;
@@ -93,6 +94,8 @@ int class_command(int argc, char **argv)
 			body_mode = 1;
 		} else if (strcmp(argv[i], "--refs") == 0) {
 			refs_mode = 1;
+		} else if (strcmp(argv[i], "--pid") == 0 && i + 1 < argc) {
+			pidstr = argv[++i];
 		} else if (!name) {
 			name = argv[i];
 		}
@@ -106,7 +109,18 @@ int class_command(int argc, char **argv)
 			fprintf(stderr, "no running instance; pass --db PATH\n");
 			return 1;
 		}
-		dbpath = dbpaths[0];
+		if (pidstr) {
+			pid_t target = (pid_t)atoi(pidstr);
+			for (int i = 0; i < n; i++) {
+				if (pids[i] == target) { dbpath = dbpaths[i]; break; }
+			}
+			if (!dbpath) {
+				fprintf(stderr, "pid %s not found\n", pidstr);
+				return 1;
+			}
+		} else {
+			dbpath = dbpaths[0];
+		}
 	}
 	sqlite3 *db;
 	if (sqlite3_open(dbpath, &db) != SQLITE_OK) {

@@ -18,6 +18,7 @@ pycoolctl class [NAME] [--file PATH] [--module PATH] [--info LETTERS]
 - `--body`: print only the class source span.
 - `--refs`: print usages as `file:line`.
 - `--db PATH`: index database (or first running instance).
+- `--pid PID`: use the DB of a running pycool process.
 
 ## Info letters
 
