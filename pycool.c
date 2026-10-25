@@ -113,16 +113,43 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 							int is_async = (strcmp(cn, "AsyncFunctionDef") == 0);
 							PyObject *args_obj = PyObject_GetAttrString(item, "args");
 							PyObject *returns_obj = PyObject_GetAttrString(item, "returns");
+							PyObject *decs_obj = PyObject_GetAttrString(item, "decorator_list");
 							PyObject *unparse_fn = ast_mod ? PyObject_GetAttrString(ast_mod, "unparse") : NULL;
 							PyObject *args_str = (unparse_fn && args_obj) ? PyObject_CallFunction(unparse_fn, "(O)", args_obj) : NULL;
 							PyObject *ret_str = (unparse_fn && returns_obj && returns_obj != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", returns_obj) : NULL;
 							const char *args_s = (args_str && PyUnicode_Check(args_str)) ? PyUnicode_AsUTF8(args_str) : "";
 							const char *ret_s = (ret_str && PyUnicode_Check(ret_str)) ? PyUnicode_AsUTF8(ret_str) : NULL;
+
+							char dec_prefix[512];
+							dec_prefix[0] = '\0';
+							if (decs_obj && PyList_Check(decs_obj) && unparse_fn) {
+								Py_ssize_t nd = PyList_Size(decs_obj);
+								size_t dlen = 0;
+								for (Py_ssize_t di = 0; di < nd; di++) {
+									PyObject *dec = PyList_GetItem(decs_obj, di);
+									PyObject *u = PyObject_CallFunction(unparse_fn, "(O)", dec);
+									const char *ds = u ? (PyUnicode_Check(u) ? PyUnicode_AsUTF8(u) : NULL) : NULL;
+									if (ds) {
+										if (dlen > 0 && dlen + 1 < sizeof(dec_prefix)) dec_prefix[dlen++] = ' ';
+										size_t dl = strlen(ds);
+										if (dlen + dl + 2 < sizeof(dec_prefix)) {
+											dec_prefix[dlen++] = '@';
+											memcpy(dec_prefix + dlen, ds, dl);
+											dlen += dl;
+											dec_prefix[dlen] = '\0';
+										}
+									}
+									Py_XDECREF(u);
+								}
+							}
+
 							char *sig = NULL;
+							char prefix[600];
+							snprintf(prefix, sizeof(prefix), "%s%s%s", dec_prefix, dec_prefix[0] ? " " : "", is_async ? "async " : "");
 							if (ret_s) {
-								if (asprintf(&sig, "%s%s(%s) -> %s", is_async ? "async " : "", ms, args_s ? args_s : "", ret_s) == -1) sig = NULL;
+								if (asprintf(&sig, "%s%s(%s) -> %s", prefix, ms, args_s ? args_s : "", ret_s) == -1) sig = NULL;
 							} else {
-								if (asprintf(&sig, "%s%s(%s)", is_async ? "async " : "", ms, args_s ? args_s : "") == -1) sig = NULL;
+								if (asprintf(&sig, "%s%s(%s)", prefix, ms, args_s ? args_s : "") == -1) sig = NULL;
 							}
 							if (sig) {
 								size_t add = strlen(sig) + 2;
@@ -137,6 +164,7 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 							Py_XDECREF(unparse_fn);
 							Py_XDECREF(returns_obj);
 							Py_XDECREF(args_obj);
+							Py_XDECREF(decs_obj);
 						}
 						Py_XDECREF(mname);
 					}
