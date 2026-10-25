@@ -161,6 +161,8 @@ void on_node(const char *type, int lineno, const char *name, void *node_ptr, voi
 							if (name) {
 								sqlite3_int64 mid = 0;
 								int mline = lineno;
+								PyObject *mln_obj = PyObject_GetAttrString(item, "lineno");
+								if (mln_obj) { mline = (int)PyLong_AsLong(mln_obj); if (PyErr_Occurred()) PyErr_Clear(); Py_DECREF(mln_obj); } else PyErr_Clear();
 								int mend = 0;
 								PyObject *end_lineno_obj = PyObject_GetAttrString(item, "end_lineno");
 								if (end_lineno_obj) {

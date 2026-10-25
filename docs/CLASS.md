@@ -7,7 +7,7 @@ Query a class from a pycools index.
 ```
 pycoolctl class <Name> [--file PATH] [--module PATH] [--info LETTERS]
                [--compact|--full|--verbose|--json|--body|--refs]
-               [--pid PID] [--db PATH]
+               [--method NAME] [--pid PID] [--db PATH]
 ```
 
 `<Name>` is required.
@@ -19,7 +19,8 @@ pycoolctl class <Name> [--file PATH] [--module PATH] [--info LETTERS]
 - `--compact`: one compact line per class (default).
 - `--full` / `--verbose`: verbose `key=value | ...` output.
 - `--json`: JSON array.
-- `--body`: print only the class source span.
+- `--body`: print only the class source span (or a method span with `--method`).
+- `--method NAME`: target a method for `--body`/details.
 - `--refs`: print usages as `file:line`.
 - `--pid PID`: use the DB of a running pycool process.
 - `--db PATH`: index database (or first running instance).

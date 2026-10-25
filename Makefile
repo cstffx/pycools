@@ -48,9 +48,9 @@ $(SRC)/ignore.o: $(SRC)/ignore.c $(SRC)/ignore.h
 pycool: $(SRCS) libast.a
 	$(CC) $(CFLAGS) -o $@ $(SRCS) libast.a $(LDFLAGS)
 
-bin/pycoolctl: $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o
+bin/pycoolctl: $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/method.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o
 	mkdir -p bin
-	$(CC) $(CFLAGS) -o $@ $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o -lsqlite3
+	$(CC) $(CFLAGS) -o $@ $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/method.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o -lsqlite3
 
 test_ast: $(TESTS)/test_ast.c $(SRC)/ast.o
 	$(CC) $(CFLAGS) -o $@ $(TESTS)/test_ast.c $(SRC)/ast.o $(LDFLAGS)

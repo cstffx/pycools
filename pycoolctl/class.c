@@ -72,6 +72,7 @@ int class_command(int argc, char **argv)
 	const char *dbpath = NULL;
 	const char *file = NULL;
 	const char *pidstr = NULL;
+	const char *method = NULL;
 	int json_mode = 0;
 	int compact_mode = 0;
 	int full_mode = 0;
@@ -92,6 +93,8 @@ int class_command(int argc, char **argv)
 			full_mode = 1;
 		} else if (strcmp(argv[i], "--body") == 0) {
 			body_mode = 1;
+		} else if (strcmp(argv[i], "--method") == 0 && i + 1 < argc) {
+			method = argv[++i];
 		} else if (strcmp(argv[i], "--refs") == 0) {
 			refs_mode = 1;
 		} else if (strcmp(argv[i], "--pid") == 0 && i + 1 < argc) {
@@ -227,8 +230,42 @@ int class_command(int argc, char **argv)
 		had_rows = 1;
 
 		if (body_mode) {
-			long el = end_line > 0 ? end_line : line;
-			print_class_body(path, line, el);
+			if (method) {
+				char msql[2048];
+				if (file) {
+					snprintf(msql, sizeof(msql),
+					         "SELECT f.path, m.line, m.end_line FROM methods m "
+					         "JOIN symbols s ON m.class_symbol_id=s.id "
+					         "JOIN files f ON s.file_id=f.id "
+					         "WHERE s.kind='class' AND s.name=? AND m.name=? AND f.path=?;");
+				} else {
+					snprintf(msql, sizeof(msql),
+					         "SELECT f.path, m.line, m.end_line FROM methods m "
+					         "JOIN symbols s ON m.class_symbol_id=s.id "
+					         "JOIN files f ON s.file_id=f.id "
+					         "WHERE s.kind='class' AND s.name=? AND m.name=?;");
+				}
+				sqlite3_stmt *mstmt;
+				if (sqlite3_prepare_v2(db, msql, -1, &mstmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(mstmt, 1, n ? n : name, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_text(mstmt, 2, method, -1, SQLITE_TRANSIENT);
+					if (file) sqlite3_bind_text(mstmt, 3, file, -1, SQLITE_TRANSIENT);
+					int found = 0;
+					while (sqlite3_step(mstmt) == SQLITE_ROW) {
+						const char *mpath = (const char *)sqlite3_column_text(mstmt, 0);
+						long mstart = sqlite3_column_int64(mstmt, 1);
+						long mend = sqlite3_column_int64(mstmt, 2);
+						if (mend <= 0) mend = mstart;
+						print_class_body(mpath, mstart, mend);
+						found = 1;
+					}
+					sqlite3_finalize(mstmt);
+					if (!found) fprintf(stderr, "method not found: %s\n", method);
+				}
+			} else {
+				long el = end_line > 0 ? end_line : line;
+				print_class_body(path, line, el);
+			}
 			continue;
 		}
 
