@@ -103,6 +103,10 @@ int class_command(int argc, char **argv)
 	if (!json_mode && info == NULL && !full_mode && !compact_mode) {
 		compact_mode = 1;
 	}
+	if (!name) {
+		fprintf(stderr, "usage: pycoolctl class <Name> [--file PATH] [--info LETTERS] [--compact|--full|--verbose|--json|--body|--refs] [--pid PID] [--db PATH]\n");
+		return 2;
+	}
 	if (!dbpath) {
 		char **roots, **dbpaths; pid_t *pids; int n;
 		if (registry_list_paths(&roots, &dbpaths, &pids, &n) != 0 || n == 0) {
