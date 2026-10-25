@@ -1,4 +1,4 @@
-#include "index.h"
+#include "core.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +43,28 @@ static const char *SCHEMA =
 "  decorators TEXT,"
 "  end_line INTEGER,"
 "  FOREIGN KEY(symbol_id) REFERENCES symbols(id)"
+");"
+"CREATE TABLE IF NOT EXISTS methods ("
+"  id INTEGER PRIMARY KEY,"
+"  class_symbol_id INTEGER NOT NULL,"
+"  name TEXT NOT NULL,"
+"  line INTEGER,"
+"  end_line INTEGER,"
+"  is_async INTEGER,"
+"  decorators TEXT,"
+"  returns TEXT,"
+"  docstring TEXT,"
+"  FOREIGN KEY(class_symbol_id) REFERENCES symbols(id)"
+");"
+"CREATE TABLE IF NOT EXISTS method_args ("
+"  id INTEGER PRIMARY KEY,"
+"  method_id INTEGER NOT NULL,"
+"  name TEXT,"
+"  annotation TEXT,"
+"  default_value TEXT,"
+"  kind TEXT,"
+"  position INTEGER,"
+"  FOREIGN KEY(method_id) REFERENCES methods(id)"
 ");"
 "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);"
 "CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);"
@@ -170,6 +192,25 @@ int index_remove_file(sqlite3 *db, const char *path)
 		if (sqlite3_step(stmt) != SQLITE_DONE) { sqlite3_finalize(stmt); index_rollback(db); return -1; }
 		sqlite3_finalize(stmt);
 	}
+	/* delete method args and methods for classes of this file */
+	{
+		const char *sql = "DELETE FROM method_args WHERE method_id IN (SELECT id FROM methods WHERE class_symbol_id IN (SELECT id FROM symbols WHERE file_id=?));";
+		sqlite3_stmt *stmt;
+		if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int64(stmt, 1, file_id);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+	}
+	{
+		const char *sql = "DELETE FROM methods WHERE class_symbol_id IN (SELECT id FROM symbols WHERE file_id=?);";
+		sqlite3_stmt *stmt;
+		if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int64(stmt, 1, file_id);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+	}
 	/* delete symbols */
 	{
 		const char *sql = "DELETE FROM symbols WHERE file_id=?;";
@@ -224,6 +265,27 @@ int index_remove_dir(sqlite3 *db, const char *dir)
 	if (sqlite3_step(stmt) != SQLITE_DONE) { sqlite3_finalize(stmt); index_rollback(db); return -1; }
 	sqlite3_finalize(stmt);
 
+	/* method args and methods */
+	{
+		const char *qm1 = "DELETE FROM method_args WHERE method_id IN (SELECT id FROM methods WHERE class_symbol_id IN (SELECT id FROM symbols WHERE file_id IN (SELECT id FROM files WHERE substr(path,1,?) = ?)));";
+		sqlite3_stmt *st;
+		if (sqlite3_prepare_v2(db, qm1, -1, &st, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(st, 1, (int)plen);
+			sqlite3_bind_text(st, 2, prefix, -1, SQLITE_TRANSIENT);
+			sqlite3_step(st);
+			sqlite3_finalize(st);
+		}
+	}
+	{
+		const char *qm2 = "DELETE FROM methods WHERE class_symbol_id IN (SELECT id FROM symbols WHERE file_id IN (SELECT id FROM files WHERE substr(path,1,?) = ?));";
+		sqlite3_stmt *st;
+		if (sqlite3_prepare_v2(db, qm2, -1, &st, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(st, 1, (int)plen);
+			sqlite3_bind_text(st, 2, prefix, -1, SQLITE_TRANSIENT);
+			sqlite3_step(st);
+			sqlite3_finalize(st);
+		}
+	}
 	/* symbols */
 	const char *q3 = "DELETE FROM symbols WHERE file_id IN (SELECT id FROM files WHERE substr(path,1,?) = ?);";
 	if (sqlite3_prepare_v2(db, q3, -1, &stmt, NULL) != SQLITE_OK) { index_rollback(db); return -1; }
@@ -243,21 +305,7 @@ int index_remove_dir(sqlite3 *db, const char *dir)
 	return index_commit(db);
 }
 
-int index_add_class_detail(sqlite3 *db, sqlite3_int64 symbol_id, const char *bases, const char *methods, const char *docstring, const char *decorators, int end_line)
-{
-	const char *sql = "INSERT OR REPLACE INTO class_details(symbol_id,bases,methods,docstring,decorators,end_line) VALUES(?,?,?,?,?,?);";
-	sqlite3_stmt *stmt;
-	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
-	sqlite3_bind_int64(stmt, 1, symbol_id);
-	sqlite3_bind_text(stmt, 2, bases ? bases : "", -1, SQLITE_TRANSIENT);
-	sqlite3_bind_text(stmt, 3, methods ? methods : "", -1, SQLITE_TRANSIENT);
-	sqlite3_bind_text(stmt, 4, docstring ? docstring : "", -1, SQLITE_TRANSIENT);
-	sqlite3_bind_text(stmt, 5, decorators ? decorators : "", -1, SQLITE_TRANSIENT);
-	sqlite3_bind_int(stmt, 6, end_line);
-	int rc = sqlite3_step(stmt);
-	sqlite3_finalize(stmt);
-	return (rc == SQLITE_DONE) ? 0 : -1;
-}
+
 
 int index_begin(sqlite3 *db)
 {
@@ -294,3 +342,7 @@ int index_file_changed(sqlite3 *db, const char *path, long mtime, const char *ha
 	if (rc == SQLITE_DONE) return 1; /* new file */
 	return -1;
 }
+
+
+
+

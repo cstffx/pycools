@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "index.h"
+#include "index/index.h"
 
 int main(void)
 {

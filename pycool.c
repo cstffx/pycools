@@ -3,7 +3,7 @@
 #include "pycool.h"
 #include "ast.h"
 #include "traverse.h"
-#include "index.h"
+#include "index/index.h"
 #include "observer.h"
 #include "registry.h"
 #include "ignore.h"
@@ -64,6 +64,8 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 	sqlite3_int64 sid;
 	if (strcmp(type, "ClassDef") == 0) {
 		char *bases = NULL, *methods = NULL, *docstring = NULL, *decorators = NULL;
+		sqlite3_int64 sid = 0;
+		if (name) index_add_symbol(ctx->db, ctx->file_id, name, "class", lineno, 0, NULL, &sid);
 		PyObject *ast_mod = PyImport_ImportModule("ast");
 		if (ast_mod && node) {
 			/* bases */
@@ -159,6 +161,155 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 								len += strlen(sig);
 								free(sig);
 							}
+
+							/* docstring */
+							char *mdoc = NULL;
+							PyObject *gds = ast_mod ? PyObject_GetAttrString(ast_mod, "get_docstring") : NULL;
+							if (gds) {
+								PyObject *ds = PyObject_CallFunction(gds, "(O)", item);
+								if (ds && ds != Py_None) {
+									const char *dstr = PyUnicode_AsUTF8(ds);
+									if (dstr) mdoc = strdup(dstr);
+								}
+								Py_XDECREF(ds);
+								Py_DECREF(gds);
+							}
+
+							/* insert method row + args */
+							if (name) {
+								sqlite3_int64 mid = 0;
+								int mline = lineno;
+								int mend = 0;
+								PyObject *end_lineno_obj = PyObject_GetAttrString(item, "end_lineno");
+								if (end_lineno_obj) {
+									mend = (int)PyLong_AsLong(end_lineno_obj);
+									if (PyErr_Occurred()) PyErr_Clear();
+									Py_DECREF(end_lineno_obj);
+								} else {
+									PyErr_Clear();
+								}
+								index_add_method(ctx->db, sid, ms, mline, mend, is_async, dec_prefix, ret_s, mdoc, &mid);
+								if (mid > 0 && args_obj) {
+									PyObject *posonly = PyObject_GetAttrString(args_obj, "posonlyargs");
+									PyObject *pos = PyObject_GetAttrString(args_obj, "args");
+									PyObject *vararg = PyObject_GetAttrString(args_obj, "vararg");
+									PyObject *kwonly = PyObject_GetAttrString(args_obj, "kwonlyargs");
+									PyObject *defaults = PyObject_GetAttrString(args_obj, "defaults");
+									PyObject *kw_defaults = PyObject_GetAttrString(args_obj, "kw_defaults");
+									PyObject *kwarg = PyObject_GetAttrString(args_obj, "kwarg");
+
+									/* combined positional list */
+									PyObject *combined = PyList_New(0);
+									if (posonly && PyList_Check(posonly)) {
+										Py_ssize_t np = PyList_Size(posonly);
+										for (Py_ssize_t i = 0; i < np; i++) PyList_Append(combined, PyList_GetItem(posonly, i));
+									}
+									if (pos && PyList_Check(pos)) {
+										Py_ssize_t np = PyList_Size(pos);
+										for (Py_ssize_t i = 0; i < np; i++) PyList_Append(combined, PyList_GetItem(pos, i));
+									}
+									Py_ssize_t ncombined = PyList_Check(combined) ? PyList_Size(combined) : 0;
+									Py_ssize_t ndefaults = (defaults && PyList_Check(defaults)) ? PyList_Size(defaults) : 0;
+
+									for (Py_ssize_t i = 0; i < ncombined; i++) {
+										PyObject *arg = PyList_GetItem(combined, i);
+										PyObject *argname = arg ? PyObject_GetAttrString(arg, "arg") : NULL;
+										const char *an = argname ? PyUnicode_AsUTF8(argname) : NULL;
+										if (an && PyErr_Occurred()) { PyErr_Clear(); an = NULL; }
+										PyObject *ann = arg ? PyObject_GetAttrString(arg, "annotation") : NULL;
+										PyObject *ann_str = (unparse_fn && ann && ann != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", ann) : NULL;
+										const char *ann_s = (ann_str && PyUnicode_Check(ann_str)) ? PyUnicode_AsUTF8(ann_str) : NULL;
+										char *def_s = NULL;
+										Py_ssize_t def_index = i - (ncombined - ndefaults);
+										if (def_index >= 0 && defaults && PyList_Check(defaults)) {
+											PyObject *dobj = PyList_GetItem(defaults, def_index);
+											PyObject *dstr = (unparse_fn && dobj) ? PyObject_CallFunction(unparse_fn, "(O)", dobj) : NULL;
+											if (dstr && PyUnicode_Check(dstr)) {
+												const char *ds = PyUnicode_AsUTF8(dstr);
+												if (ds) def_s = strdup(ds);
+											}
+											Py_XDECREF(dstr);
+										}
+										const char *kind = "positional";
+										if (posonly && PyList_Check(posonly) && i < PyList_Size(posonly)) kind = "positional-only";
+										index_add_method_arg(ctx->db, mid, an, ann_s, def_s, kind, (int)i);
+										free(def_s);
+										Py_XDECREF(ann_str);
+										Py_XDECREF(ann);
+										Py_XDECREF(argname);
+									}
+									Py_XDECREF(combined);
+
+									/* vararg */
+									if (vararg && vararg != Py_None) {
+										PyObject *vname = PyObject_GetAttrString(vararg, "arg");
+										const char *vn = vname ? PyUnicode_AsUTF8(vname) : NULL;
+										if (vn && PyErr_Occurred()) { PyErr_Clear(); vn = NULL; }
+										PyObject *vann = PyObject_GetAttrString(vararg, "annotation");
+										PyObject *vann_str = (unparse_fn && vann && vann != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", vann) : NULL;
+										const char *vann_s = (vann_str && PyUnicode_Check(vann_str)) ? PyUnicode_AsUTF8(vann_str) : NULL;
+										index_add_method_arg(ctx->db, mid, vn, vann_s, NULL, "varargs", -1);
+										Py_XDECREF(vann_str);
+										Py_XDECREF(vann);
+										Py_XDECREF(vname);
+									}
+
+									/* kwonly args */
+									if (kwonly && PyList_Check(kwonly)) {
+										Py_ssize_t nkw = PyList_Size(kwonly);
+										for (Py_ssize_t i = 0; i < nkw; i++) {
+											PyObject *arg = PyList_GetItem(kwonly, i);
+											PyObject *argname = arg ? PyObject_GetAttrString(arg, "arg") : NULL;
+											const char *an = argname ? PyUnicode_AsUTF8(argname) : NULL;
+											if (an && PyErr_Occurred()) { PyErr_Clear(); an = NULL; }
+											PyObject *ann = arg ? PyObject_GetAttrString(arg, "annotation") : NULL;
+											PyObject *ann_str = (unparse_fn && ann && ann != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", ann) : NULL;
+											const char *ann_s = (ann_str && PyUnicode_Check(ann_str)) ? PyUnicode_AsUTF8(ann_str) : NULL;
+											char *def_s = NULL;
+											if (kw_defaults && PyList_Check(kw_defaults) && i < PyList_Size(kw_defaults)) {
+												PyObject *dobj = PyList_GetItem(kw_defaults, i);
+												if (dobj && dobj != Py_None && unparse_fn) {
+													PyObject *dstr = PyObject_CallFunction(unparse_fn, "(O)", dobj);
+													if (dstr && PyUnicode_Check(dstr)) {
+														const char *ds = PyUnicode_AsUTF8(dstr);
+														if (ds) def_s = strdup(ds);
+													}
+													Py_XDECREF(dstr);
+												}
+											}
+											index_add_method_arg(ctx->db, mid, an, ann_s, def_s, "keyword-only", (int)i);
+											free(def_s);
+											Py_XDECREF(ann_str);
+											Py_XDECREF(ann);
+											Py_XDECREF(argname);
+										}
+									}
+
+									/* kwarg */
+									if (kwarg && kwarg != Py_None) {
+										PyObject *kname = PyObject_GetAttrString(kwarg, "arg");
+										const char *kn = kname ? PyUnicode_AsUTF8(kname) : NULL;
+										if (kn && PyErr_Occurred()) { PyErr_Clear(); kn = NULL; }
+										PyObject *kann = PyObject_GetAttrString(kwarg, "annotation");
+										PyObject *kann_str = (unparse_fn && kann && kann != Py_None) ? PyObject_CallFunction(unparse_fn, "(O)", kann) : NULL;
+										const char *kann_s = (kann_str && PyUnicode_Check(kann_str)) ? PyUnicode_AsUTF8(kann_str) : NULL;
+										index_add_method_arg(ctx->db, mid, kn, kann_s, NULL, "kwargs", -1);
+										Py_XDECREF(kann_str);
+										Py_XDECREF(kann);
+										Py_XDECREF(kname);
+									}
+
+									Py_XDECREF(kwarg);
+									Py_XDECREF(kw_defaults);
+									Py_XDECREF(defaults);
+									Py_XDECREF(kwonly);
+									Py_XDECREF(vararg);
+									Py_XDECREF(pos);
+									Py_XDECREF(posonly);
+								}
+								free(mdoc);
+							}
+
 							Py_XDECREF(ret_str);
 							Py_XDECREF(args_str);
 							Py_XDECREF(unparse_fn);
@@ -224,8 +375,6 @@ static void on_node(const char *type, int lineno, const char *name, void *node_p
 		} else {
 			PyErr_Clear();
 		}
-		sqlite3_int64 sid;
-		if (name) index_add_symbol(ctx->db, ctx->file_id, name, "class", lineno, 0, NULL, &sid);
 		index_add_class_detail(ctx->db, sid, bases, methods, docstring, decorators, end_line);
 		free(bases); free(methods); free(docstring); free(decorators);
 	} else if (strcmp(type, "FunctionDef") == 0 || strcmp(type, "AsyncFunctionDef") == 0) {
