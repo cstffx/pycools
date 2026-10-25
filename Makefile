@@ -61,8 +61,11 @@ test_traverse: $(TESTS)/test_traverse.c $(SRC)/ast.o $(SRC)/traverse.o
 test_index: $(TESTS)/test_index.c $(INDEX)/core.o
 	$(CC) $(CFLAGS) -o $@ $(TESTS)/test_index.c $(INDEX)/core.o -lsqlite3
 
+http: src/http.c
+	$(CC) $(CFLAGS) -o http src/http.c
+
 clean:
-	rm -f *.o *.a test_ast test_traverse test_index pycool
+	rm -f *.o *.a test_ast test_traverse test_index pycool http
 	rm -rf bin $(SRC)/*.o $(INDEX)/*.o
 
 release:
