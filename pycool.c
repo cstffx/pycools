@@ -378,8 +378,12 @@ static void clean_index(sqlite3 *db)
 
 int pycool_run(const char *root, const char *dbpath)
 {
-	if (registry_overlap(root)) {
-		fprintf(stderr, "error: %s is already monitored (or overlaps a monitored directory)\n", root);
+	char *root_abs = realpath(root, NULL);
+	if (!root_abs) root_abs = strdup(root);
+	if (!root_abs) return -1;
+	if (registry_overlap(root_abs)) {
+		fprintf(stderr, "error: %s is already monitored (or overlaps a monitored directory)\n", root_abs);
+		free(root_abs);
 		return -1;
 	}
 	signal(SIGTERM, handle_signal);
@@ -390,21 +394,22 @@ int pycool_run(const char *root, const char *dbpath)
 	sqlite3 *db;
 	if (index_init(dbpath, &db) != 0) {
 		fprintf(stderr, "cannot open db %s\n", dbpath);
+		free(root_abs);
 		return -1;
 	}
-	pycool_root = root;
-	pycool_ignore = ignore_load(root);
-	registry_register(root, dbpath);
-	scan_dir(root, db);
+	pycool_root = root_abs;
+	pycool_ignore = ignore_load(root_abs);
+	registry_register(root_abs, dbpath);
+	scan_dir(root_abs, db);
 	while (pycool_running) {
-		observer_watch(root, on_event, db);
+		observer_watch(root_abs, on_event, db);
 		if (pycool_clean_requested) {
 			clean_index(db);
 			pycool_clean_requested = 0;
 		}
 		if (pycool_reindex_requested) {
 			clean_index(db);
-			scan_dir(root, db);
+			scan_dir(root_abs, db);
 			pycool_reindex_requested = 0;
 		}
 	}
@@ -412,6 +417,8 @@ int pycool_run(const char *root, const char *dbpath)
 	registry_unregister();
 	ignore_free(pycool_ignore);
 	pycool_ignore = NULL;
+	pycool_root = NULL;
+	free(root_abs);
 	return 0;
 }
 
