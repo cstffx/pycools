@@ -1,69 +1,77 @@
 CC ?= gcc
-CFLAGS ?= -std=c11 -O2 -Wall -Wextra -I/usr/include/python3.13
+CFLAGS ?= -std=c11 -O2 -Wall -Wextra -I/usr/include/python3.13 -Isrc -Iindex -Ipycoolctl
 LDFLAGS ?= -lpython3.13 -lsqlite3
+
+SRC := src
+INDEX := index
+CLI := pycoolctl
+TESTS := tests
+
+SRCS := $(SRC)/pycool.c $(SRC)/extract.c $(SRC)/scan.c $(SRC)/ast.c $(SRC)/traverse.c \
+        $(SRC)/ignore.c $(SRC)/registry.c $(SRC)/observer.c
+
+OBJS := $(SRC)/ast.o $(SRC)/traverse.o $(INDEX)/core.o $(INDEX)/class.o $(INDEX)/method.o \
+        $(SRC)/observer.o $(SRC)/registry.o $(SRC)/ignore.o
 
 all: libast.a pycool bin/pycoolctl
 
-libast.a: ast.o traverse.o index/core.o index/class.o index/method.o observer.o registry.o ignore.o
-	ar rcs $@ ast.o traverse.o index/core.o index/class.o index/method.o observer.o registry.o ignore.o
+libast.a: $(OBJS)
+	ar rcs $@ $(OBJS)
 
-ast.o: ast.c ast.h
-	$(CC) $(CFLAGS) -c ast.c
+$(SRC)/ast.o: $(SRC)/ast.c $(SRC)/ast.h
+	$(CC) $(CFLAGS) -c $(SRC)/ast.c -o $(SRC)/ast.o
 
-traverse.o: traverse.c traverse.h ast.h
-	$(CC) $(CFLAGS) -c traverse.c
+$(SRC)/traverse.o: $(SRC)/traverse.c $(SRC)/traverse.h $(SRC)/ast.h
+	$(CC) $(CFLAGS) -c $(SRC)/traverse.c -o $(SRC)/traverse.o
 
-index/core.o: index/core.c index/core.h index/class.h index/method.h
-	mkdir -p index
-	$(CC) $(CFLAGS) -Iindex -c index/core.c -o index/core.o
+$(INDEX)/core.o: $(INDEX)/core.c $(INDEX)/core.h $(INDEX)/class.h $(INDEX)/method.h
+	mkdir -p $(INDEX)
+	$(CC) $(CFLAGS) -c $(INDEX)/core.c -o $(INDEX)/core.o
 
-index/class.o: index/class.c index/class.h
-	mkdir -p index
-	$(CC) $(CFLAGS) -Iindex -c index/class.c -o index/class.o
+$(INDEX)/class.o: $(INDEX)/class.c $(INDEX)/class.h
+	mkdir -p $(INDEX)
+	$(CC) $(CFLAGS) -c $(INDEX)/class.c -o $(INDEX)/class.o
 
-index/method.o: index/method.c index/method.h
-	mkdir -p index
-	$(CC) $(CFLAGS) -Iindex -c index/method.c -o index/method.o
+$(INDEX)/method.o: $(INDEX)/method.c $(INDEX)/method.h
+	mkdir -p $(INDEX)
+	$(CC) $(CFLAGS) -c $(INDEX)/method.c -o $(INDEX)/method.o
 
-observer.o: observer.c observer.h
-	$(CC) $(CFLAGS) -c observer.c
+$(SRC)/observer.o: $(SRC)/observer.c $(SRC)/observer.h
+	$(CC) $(CFLAGS) -c $(SRC)/observer.c -o $(SRC)/observer.o
 
-registry.o: registry.c registry.h
-	$(CC) $(CFLAGS) -c registry.c
+$(SRC)/registry.o: $(SRC)/registry.c $(SRC)/registry.h
+	$(CC) $(CFLAGS) -c $(SRC)/registry.c -o $(SRC)/registry.o
 
-info.o: info.c info.h
-	$(CC) $(CFLAGS) -I. -c info.c
+$(SRC)/ignore.o: $(SRC)/ignore.c $(SRC)/ignore.h
+	$(CC) $(CFLAGS) -c $(SRC)/ignore.c -o $(SRC)/ignore.o
 
-ignore.o: ignore.c ignore.h
-	$(CC) $(CFLAGS) -c ignore.c
+pycool: $(SRCS) libast.a
+	$(CC) $(CFLAGS) -o $@ $(SRCS) libast.a $(LDFLAGS)
 
-pycool: pycool.c extract.c scan.c libast.a
-	$(CC) $(CFLAGS) -I. -o $@ pycool.c extract.c scan.c libast.a $(LDFLAGS)
-
-bin/pycoolctl: pycoolctl/main.c pycoolctl/list.c pycoolctl/info.c pycoolctl/class.c pycoolctl/stop.c pycoolctl/clean.c pycoolctl/reindex.c registry.o
+bin/pycoolctl: $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o
 	mkdir -p bin
-	$(CC) $(CFLAGS) -I. -Ipycoolctl -o $@ pycoolctl/main.c pycoolctl/list.c pycoolctl/info.c pycoolctl/class.c pycoolctl/stop.c pycoolctl/clean.c pycoolctl/reindex.c registry.o -lsqlite3
+	$(CC) $(CFLAGS) -o $@ $(CLI)/main.c $(CLI)/list.c $(CLI)/info.c $(CLI)/class.c $(CLI)/stop.c $(CLI)/clean.c $(CLI)/reindex.c $(SRC)/registry.o -lsqlite3
 
-test_ast: test_ast.c ast.o
-	$(CC) $(CFLAGS) -o $@ test_ast.c ast.o $(LDFLAGS)
+test_ast: $(TESTS)/test_ast.c $(SRC)/ast.o
+	$(CC) $(CFLAGS) -o $@ $(TESTS)/test_ast.c $(SRC)/ast.o $(LDFLAGS)
 
-test_traverse: test_traverse.c ast.o traverse.o
-	$(CC) $(CFLAGS) -o $@ test_traverse.c ast.o traverse.o $(LDFLAGS)
+test_traverse: $(TESTS)/test_traverse.c $(SRC)/ast.o $(SRC)/traverse.o
+	$(CC) $(CFLAGS) -o $@ $(TESTS)/test_traverse.c $(SRC)/ast.o $(SRC)/traverse.o $(LDFLAGS)
 
-test_index: test_index.c index/core.o
-	$(CC) $(CFLAGS) -I. -o $@ test_index.c index/core.o -lsqlite3
+test_index: $(TESTS)/test_index.c $(INDEX)/core.o
+	$(CC) $(CFLAGS) -o $@ $(TESTS)/test_index.c $(INDEX)/core.o -lsqlite3
 
 clean:
 	rm -f *.o *.a test_ast test_traverse test_index pycool
-	rm -rf bin index/*.o
+	rm -rf bin $(SRC)/*.o $(INDEX)/*.o
+
+release:
+	$(MAKE) clean
+	$(MAKE) CFLAGS="-std=c11 -O3 -Wall -Wextra -I/usr/include/python3.13 -Isrc -Iindex -Ipycoolctl" all
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
-
-release:
-	$(MAKE) clean
-	$(MAKE) CFLAGS="-std=c11 -O3 -Wall -Wextra -I/usr/include/python3.13" all
 
 install: release
 	install -d $(DESTDIR)$(BINDIR)

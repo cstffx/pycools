@@ -5,7 +5,7 @@
 #include "scan.h"
 #include "ast.h"
 #include "traverse.h"
-#include "index/index.h"
+#include "../index/index.h"
 #include "observer.h"
 #include "registry.h"
 #include "ignore.h"

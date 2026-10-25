@@ -3,7 +3,7 @@
 #include "extract.h"
 #include "ast.h"
 #include "traverse.h"
-#include "index/index.h"
+#include "../index/index.h"
 #include "ignore.h"
 #include <Python.h>
 #include <stdio.h>

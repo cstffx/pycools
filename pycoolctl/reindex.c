@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "reindex.h"
-#include "../registry.h"
+#include "../src/registry.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

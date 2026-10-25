@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "clean.h"
-#include "../registry.h"
+#include "../src/registry.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
